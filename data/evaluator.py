@@ -53,12 +53,26 @@ SCORING RUBRIC
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ownership_score (1-10) — Does this company OWN or CONTROL a physical bottleneck asset?
-  10  = Owns a geologically / physically scarce asset outright with no substitutes
-        (uranium mine, pre-connected power site, nuclear plant, the only liquid cooling factory)
-  8-9 = Primary controller; very limited competition; 5+ years for anyone to replicate
-  6-7 = Important player but 2-5 real competitors exist; 2-5 year replication time
-  4-5 = Exposed to the bottleneck theme but doesn't own it; mostly a service / software layer
-  1-3 = Tangential, indirect, or easily substituted — no genuine physics bottleneck
+  10  = Owns a geologically / physically scarce asset with NO substitutes
+        (Examples: uranium mine, pre-connected power site, nuclear plant, sole liquid-cooling OEM)
+  8-9 = Primary controller of a scarce physical asset; very limited competition;
+        5+ years for anyone to replicate from scratch
+        (Examples: Cameco dominates Western uranium supply; Vertiv is the dominant liquid-cooling supplier)
+  6-7 = Directly OWNS OR OPERATES physical infrastructure, but 2-5 real competitors exist;
+        2-5 year replication time. ONLY use this band if the company physically operates the
+        asset — NOT if it merely designs, sells equipment into, or services the bottleneck.
+  4-5 = Exposed to the bottleneck theme but does NOT own the physical asset.
+        This includes: fabless chip designers (NVIDIA designs GPUs but TSMC manufactures them → 4),
+        equipment vendors that sell into the bottleneck but don't control it, software/cloud layers,
+        companies with indirect exposure through a diversified business.
+  1-3 = Tangential, indirect, or no genuine physics link.
+        Holding companies with no direct operations, pure software businesses, diversified
+        conglomerates where the bottleneck is a minor segment.
+
+⚠ CALIBRATION — give low scores freely. Market cap, brand recognition, and revenue are
+IRRELEVANT to this score. Only direct physical ownership counts. NVIDIA (fabless, $3T market cap)
+scores LOWER than an obscure uranium miner that owns proven in-ground reserves. If torn between
+two bands, choose the LOWER one. The rubric rewards physical control, not financial size.
 
 supply_response_score (1-10) — How fast can new supply come online, even with unlimited capital?
   10  = CANNOT be meaningfully accelerated (copper mine = 10-20 years; nuclear plant = 10 years)
@@ -66,7 +80,7 @@ supply_response_score (1-10) — How fast can new supply come online, even with 
   6-7 = 2-5 years
   4-5 = 1-2 years
   2-3 = 6-12 months
-  1   = Commodity market — responds within weeks
+  1   = Commodity market — responds within weeks / months regardless of price signal
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OUTPUT FORMAT
@@ -87,7 +101,10 @@ Respond ONLY with a valid JSON object and absolutely no other text:
   "reasoning": "<2-3 sentences explaining how you arrived at the two scores>"
 }}
 
-If this company has no meaningful physics arbitrage angle give it ownership_score 1-3 and be explicit about why in reasoning."""
+If this company has no meaningful physics arbitrage angle give it ownership_score 1-3 and be explicit about why in reasoning.
+A fabless semiconductor designer, a pure-software AI company, or a holding company with no direct
+physical operations should score 1-4 on ownership_score. Do not let name recognition or market cap
+push the score up — score the physics, not the brand."""
 
 
 def _fetch_context(ticker: str) -> dict:
@@ -152,6 +169,6 @@ def evaluate_company(ticker: str, name: str, api_key: str) -> dict:
         "constraint_controlled":   payload.get("constraint_controlled", ""),
         "physics_thesis":          payload.get("physics_thesis", ""),
         "key_metrics":             payload.get("key_metrics", ""),
-        "reasoning":               payload.get("reasoning", ""),   # shown in preview, not saved to CSV
-        "yf_context":              context,                         # shown in preview, not saved to CSV
+        "reasoning":               payload.get("reasoning", ""),
+        "yf_context":              context,                         # not saved to CSV
     }

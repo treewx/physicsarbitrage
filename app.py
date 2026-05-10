@@ -696,6 +696,10 @@ with tab5:
                 st.markdown(f"**Constraint Controlled:** {row['Constraint Controlled']}")
                 st.markdown(f"**Physics Thesis:**")
                 st.markdown(f"<span class='thesis-text'>{row['Thesis']}</span>", unsafe_allow_html=True)
+                _reasoning = row.get("reasoning", "")
+                if pd.notna(_reasoning) and str(_reasoning).strip():
+                    st.markdown("**Claude's Scoring Rationale:**")
+                    st.caption(str(_reasoning))
             with col_nums:
                 st.markdown(f"<span class='{cls}'>{score:.1f}/10</span>", unsafe_allow_html=True)
                 st.metric("Lead Time Advantage", f"{row['Lead Time Adv (yrs)']:.1f} yrs",
@@ -871,7 +875,7 @@ The Physics Score column in the table is computed automatically every time the a
                 with col_ok:
                     if st.button("✅ Confirm & Add to Screener", type="primary"):
                         _csv_path = os.path.join(os.path.dirname(__file__), "data", "companies.csv")
-                        _new_row = {k: v for k, v in r.items() if k not in ("reasoning", "yf_context")}
+                        _new_row = {k: v for k, v in r.items() if k not in ("yf_context",)}
                         _existing = pd.read_csv(_csv_path)
                         pd.concat([_existing, pd.DataFrame([_new_row])], ignore_index=True).to_csv(_csv_path, index=False)
                         st.session_state.pop("eval_result", None)
