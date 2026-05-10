@@ -631,11 +631,16 @@ with tab5:
     # Filters
     col_f1, col_f2, col_f3 = st.columns(3)
     with col_f1:
-        cats = st.multiselect("Category", screener.categories(), default=screener.categories())
+        cats = st.multiselect(
+            "Category", screener.categories(), default=screener.categories(), key="cat_filter",
+        )
     with col_f2:
-        min_score = st.slider("Min Physics Score", 1.0, 10.0, 7.0, 0.5)
+        min_score = st.slider("Min Physics Score", 1.0, 10.0, 1.0, 0.5)
     with col_f3:
-        stages = st.multiselect("Cycle Stage", ["early", "middle", "late", "mature"], default=["early", "middle"])
+        stages = st.multiselect(
+            "Cycle Stage", ["early", "middle", "late", "mature"],
+            default=["early", "middle", "late", "mature"], key="stage_filter",
+        )
 
     df_filtered = df_all[
         df_all["Category"].isin(cats) &
@@ -870,6 +875,9 @@ The Physics Score column in the table is computed automatically every time the a
                         _existing = pd.read_csv(_csv_path)
                         pd.concat([_existing, pd.DataFrame([_new_row])], ignore_index=True).to_csv(_csv_path, index=False)
                         st.session_state.pop("eval_result", None)
+                        # Reset filters so the new company is always visible
+                        st.session_state.pop("cat_filter", None)
+                        st.session_state.pop("stage_filter", None)
                         st.success(f"**{r['ticker']}** added to the screener!")
                         st.rerun()
                 with col_no:

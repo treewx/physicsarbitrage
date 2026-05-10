@@ -13,6 +13,11 @@ import re
 import anthropic
 import yfinance as yf
 
+VALID_CATEGORIES = {
+    "Power Generation", "Pre-Connected Power", "Grid Infrastructure",
+    "Cooling and Power Management", "Nuclear Revival", "Critical Materials", "Other",
+}
+
 
 SYSTEM_PROMPT = (
     "You are an expert analyst evaluating public companies for a physics arbitrage "
@@ -132,10 +137,13 @@ def evaluate_company(ticker: str, name: str, api_key: str) -> dict:
     payload = json.loads(match.group() if match else raw)
 
     # Normalise keys and attach identifiers
+    raw_cat = payload.get("category", "Other")
+    category = raw_cat if raw_cat in VALID_CATEGORIES else "Other"
+
     return {
         "ticker":                  ticker.upper(),
         "name":                    name,
-        "category":                payload.get("category", "Other"),
+        "category":                category,
         "subcategory":             payload.get("subcategory", ""),
         "cycle_stage":             payload.get("cycle_stage", "early"),
         "lead_time_advantage_yrs": float(payload.get("lead_time_advantage_yrs", 3.0)),
