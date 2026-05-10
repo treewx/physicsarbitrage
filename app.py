@@ -45,7 +45,14 @@ st.markdown("""
 # SIDEBAR
 # ─────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.title("⚛ Physics Arbitrage")
+    st.markdown(
+        '<h1 style="margin-bottom:0" title="Physics arbitrage: the strategy of identifying '
+        'the hard physical constraints a major technology wave will inevitably hit — energy, '
+        'materials, manufacturing, labour — then investing in companies that already control '
+        'those constrained assets before the market appreciates their scarcity. '
+        'Coined and popularised by Leopold Aschenbrenner (Situational Awareness LP).">⚛ Physics Arbitrage</h1>',
+        unsafe_allow_html=True,
+    )
     st.caption("Aschenbrenner / Situational Awareness framework")
     st.divider()
 
@@ -219,11 +226,22 @@ with tab1:
 
         st.divider()
 
-        # Color legend
+        # Color legend with tooltips
         st.subheader("Node Types")
+        node_explanations = {
+            "demand":         "The end-market driving the need (e.g. AI model training). This is where the investment thesis starts — everything upstream of demand is what physics arbitrage is hunting.",
+            "compute":        "The processing hardware required (GPUs, TPUs, ASICs). Usually the first bottleneck the market discovers and prices in.",
+            "energy":         "The raw electricity needed to run the compute. Often underappreciated until compute is already fully priced in — this is the current bottleneck for AI.",
+            "infrastructure": "Physical facilities and connections (data centres, grid interconnections, cooling). Takes years to permit and build — hence the value of pre-existing sites.",
+            "materials":      "Physical inputs required at scale: copper wiring, transformer steel, rare-earth magnets. Supply is geologically constrained and cannot be rushed.",
+            "upstream":       "The furthest-back resources in the chain (mining, raw extraction). Longest lead times, last to be priced in by markets — the most contrarian and highest-asymmetry positions.",
+            "labor":          "Skilled workers needed: electricians, nuclear engineers, grid technicians. A constraint that capital alone cannot fix quickly — training pipelines take years.",
+        }
         for ntype, color in type_colors.items():
+            tooltip = node_explanations.get(ntype, "")
             st.markdown(
-                f"<span style='color:{color}'>■</span> {ntype.capitalize()}",
+                f'<span style="color:{color}" title="{tooltip}">■</span> '
+                f'<span title="{tooltip}">{ntype.capitalize()}</span>',
                 unsafe_allow_html=True,
             )
 
@@ -322,10 +340,14 @@ with tab2:
         f2025_mw = mdl.training_power_mw(5e26, 90)
         f2025_chips = mdl.chips_needed(5e26, 90)
 
-        st.metric("GPT-4 training power", f"{gpt4_mw:.0f} MW", "~25,000 H100s × 90 days")
-        st.metric("2025 frontier training", f"{f2025_mw:.0f} MW", f"~{f2025_chips:,} H100-equiv")
-        st.metric("Compute doubling time", f"{doubling_months:.1f} months", "frontier runs, 2019–2025")
-        st.metric("H100 chip power draw", "700 W each", f"× {mdl.PUE} PUE = facility overhead")
+        st.metric("GPT-4 training power", f"{gpt4_mw:.0f} MW", "~25,000 H100s × 90 days",
+                  help="Total facility power (compute + cooling overhead) needed to train a GPT-4 class model in 90 days. For comparison, a large hospital uses about 5–10 MW.")
+        st.metric("2025 frontier training", f"{f2025_mw:.0f} MW", f"~{f2025_chips:,} H100-equiv",
+                  help="Estimated power for a single frontier training run at today's scale. Each new generation requires roughly 4× more compute than the last.")
+        st.metric("Compute doubling time", f"{doubling_months:.1f} months", "frontier runs, 2019–2025",
+                  help="How frequently the total compute used in the largest training runs has doubled. This is faster than Moore's Law and is the root cause of the power demand explosion.")
+        st.metric("H100 chip power draw", "700 W each", f"× {mdl.PUE} PUE = facility overhead",
+                  help=f"Each NVIDIA H100 GPU consumes 700W. PUE (Power Usage Effectiveness) of {mdl.PUE} accounts for cooling and other overhead — so every 700W of chips needs {700*mdl.PUE:.0f}W of total facility power.")
 
     # Industry power projection
     st.divider()
@@ -537,7 +559,12 @@ with tab4:
             template="plotly_dark", height=420,
         )
         st.plotly_chart(fig_radar, use_container_width=True)
-        st.caption("High severity + high investability = the sweet spot for physics arbitrage.")
+        st.caption(
+            "**Severity** = how critical is this bottleneck (1–10). "
+            "**Investability** = 10 minus the lead time in years — high investability means "
+            "the bottleneck is real *and* you can actually buy something that benefits from it today. "
+            "Top-right of both axes = the sweet spot."
+        )
 
     with col_gap:
         st.subheader("AI Power: Demand vs. New Supply")
@@ -578,10 +605,13 @@ with tab4:
                 for sector in b.investable_sectors:
                     st.markdown(f"  - {sector}")
             with col_b:
-                st.metric("Severity", f"{b.constraint_severity}/10")
-                st.metric("Lead Time to Fix", f"{b.lead_time_years:.0f} yrs")
+                st.metric("Severity", f"{b.constraint_severity}/10",
+                          help="How critical is this bottleneck to the AI infrastructure buildout? 9–10 = existential constraint that physically cannot be bypassed in the near term. 7–8 = serious friction that adds years and cost. Below 7 = significant but has partial workarounds.")
+                st.metric("Lead Time to Fix", f"{b.lead_time_years:.0f} yrs",
+                          help="How many years would it take to meaningfully expand supply of this resource, even with unlimited capital committed today? Longer = more durable scarcity = higher value for companies that already have it.")
                 if b.current_capacity_gw > 0:
-                    st.metric("Current Build Rate", f"{b.current_capacity_gw:.0f} GW/yr")
+                    st.metric("Current Build Rate", f"{b.current_capacity_gw:.0f} GW/yr",
+                              help="How much new capacity is being added in this category each year right now (GW). Compare this against the AI power demand projections in the Compute Demand tab to see the size of the gap.")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -663,7 +693,8 @@ with tab5:
                 st.markdown(f"<span class='thesis-text'>{row['Thesis']}</span>", unsafe_allow_html=True)
             with col_nums:
                 st.markdown(f"<span class='{cls}'>{score:.1f}/10</span>", unsafe_allow_html=True)
-                st.metric("Lead Time Advantage", f"{row['Lead Time Adv (yrs)']:.1f} yrs")
+                st.metric("Lead Time Advantage", f"{row['Lead Time Adv (yrs)']:.1f} yrs",
+                          help="How many years it would take a new competitor to replicate this company's physical position from scratch. A mine takes 10–20 years; a pre-connected power site takes 5–7 years; electrical equipment takes 2–3 years. The longer this is, the more durable the moat.")
                 st.markdown(f"**Cycle Stage:** `{row['Cycle Stage']}`")
                 if show_live and "Price" in row and pd.notna(row.get("Price")):
                     st.metric("Price", row["Price"])
@@ -677,7 +708,35 @@ with tab5:
     if show_live and "Price" in df_filtered.columns:
         table_cols += ["Price", "Mkt Cap ($B)", "Fwd P/E", "EV/EBITDA", "Rev Growth", "1Y Perf"]
     avail = [c for c in table_cols if c in df_filtered.columns]
-    st.dataframe(df_filtered[avail], use_container_width=True, hide_index=True)
+    st.dataframe(
+        df_filtered[avail],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Physics Score": st.column_config.NumberColumn(
+                "Physics Score",
+                help="How directly does this company control the physical bottleneck? 10 = owns the scarce resource outright (e.g. a mine, a pre-connected power site). 7 = strong exposure but with some competition. Higher = more direct leverage on the physics thesis.",
+                format="%.1f",
+            ),
+            "Lead Time Adv (yrs)": st.column_config.NumberColumn(
+                "Lead Time Adv (yrs)",
+                help="How many years it would take a new competitor to replicate this company's physical position from scratch. A copper mine takes 10–20 years. A pre-connected data centre site takes 5–7 years. Electrical equipment takes 2–3 years. Longer = more durable competitive moat.",
+                format="%.1f",
+            ),
+            "Cycle Stage": st.column_config.TextColumn(
+                "Cycle Stage",
+                help="Where is the market in recognising this bottleneck asset? 'Early' = the AI connection is not yet consensus — most of the upside is still ahead. 'Middle' = awareness growing, partially priced in. 'Late' = widely known, mostly priced in. 'Mature' = fully priced in, look to rotate out.",
+            ),
+            "Constraint Controlled": st.column_config.TextColumn(
+                "Constraint Controlled",
+                help="The specific physical resource or infrastructure that this company controls — the actual bottleneck asset that cannot be quickly replicated. This is the core of the physics arbitrage thesis: whoever owns the constraint captures the value.",
+            ),
+            "Category": st.column_config.TextColumn(
+                "Category",
+                help="The type of physical infrastructure this company operates in: Power Generation = makes electricity; Pre-Connected Power = already has grid connections (crypto miners converting to AI); Grid Infrastructure = equipment and contractors that connect power to consumers; Cooling = manages heat from AI chips; Nuclear = zero-carbon baseload; Critical Materials = raw inputs like copper and uranium.",
+            ),
+        },
+    )
 
     st.divider()
     st.caption(
@@ -1071,9 +1130,12 @@ with tab6:
                 st.write("")
                 st.markdown(f"**What to watch:**  \n{row['what_to_watch']}")
             with col_b:
-                st.metric("Market Awareness", f"{row['market_awareness']}%")
-                st.metric("Upside Remaining", f"{row['upside_remaining']}/10")
-                st.metric("Physics Conviction", f"{row['physics_conviction']}/10")
+                st.metric("Market Awareness", f"{row['market_awareness']}%",
+                          help="Estimate of how much of the physics-driven demand thesis for this category has already been priced into the relevant stocks. 0% = market hasn't connected this to AI at all. 100% = fully priced in, easy money gone. The lower this is relative to physics conviction, the more attractive the opportunity.")
+                st.metric("Upside Remaining", f"{row['upside_remaining']}/10",
+                          help="Subjective estimate of how much further these stocks could run if the full physics thesis plays out and is not yet priced in. 9–10 = very large potential move still ahead. 1–2 = most of the move has already happened.")
+                st.metric("Physics Conviction", f"{row['physics_conviction']}/10",
+                          help="How certain is it, based on physical laws and infrastructure economics, that this will be a genuine bottleneck? 10 = thermodynamic or geological certainty (e.g. you cannot cool H100s without liquid cooling). 7 = strong but with some substitutability or timeline uncertainty.")
                 st.markdown(f"**Timing window:** {row['window']}")
                 st.markdown(f"**Key tickers:** `{row['tickers']}`")
                 st.markdown(f"**Representative return:** {row['representative_return']}")
