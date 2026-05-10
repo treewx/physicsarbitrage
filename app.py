@@ -1,3 +1,4 @@
+import base64
 import os
 import sys
 
@@ -6,9 +7,50 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import requests
 import streamlit as st
 
 sys.path.insert(0, os.path.dirname(__file__))
+
+
+def _commit_csv_to_github(csv_local_path: str) -> bool:
+    """
+    Push the updated companies.csv to GitHub via the Contents API.
+    Returns True on success, False if no token is configured.
+    Raises requests.HTTPError on API failure.
+    """
+    try:
+        token  = st.secrets.get("GITHUB_TOKEN")  or os.environ.get("GITHUB_TOKEN", "")
+        repo   = st.secrets.get("GITHUB_REPO")   or os.environ.get("GITHUB_REPO",  "treewx/physicsarbitrage")
+        branch = st.secrets.get("GITHUB_BRANCH") or os.environ.get("GITHUB_BRANCH", "master")
+    except Exception:
+        token  = os.environ.get("GITHUB_TOKEN", "")
+        repo   = os.environ.get("GITHUB_REPO",  "treewx/physicsarbitrage")
+        branch = os.environ.get("GITHUB_BRANCH", "master")
+
+    if not token:
+        return False
+
+    file_path = "data/companies.csv"
+    api_url   = f"https://api.github.com/repos/{repo}/contents/{file_path}"
+    headers   = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+
+    # Fetch current SHA (required by the API to update an existing file)
+    r = requests.get(api_url, headers=headers, params={"ref": branch}, timeout=15)
+    r.raise_for_status()
+    sha = r.json()["sha"]
+
+    with open(csv_local_path, "r", encoding="utf-8") as f:
+        encoded = base64.b64encode(f.read().encode("utf-8")).decode("utf-8")
+
+    r2 = requests.put(api_url, headers=headers, timeout=15, json={
+        "message": "Add company via Claude evaluator",
+        "content": encoded,
+        "sha":     sha,
+        "branch":  branch,
+    })
+    r2.raise_for_status()
+    return True
 
 from data.fetchers import fetch_stock_data, fetch_price_history, market_data_to_df
 from models.compute import ComputeDemandModel
@@ -878,11 +920,23 @@ The Physics Score column in the table is computed automatically every time the a
                         _new_row = {k: v for k, v in r.items() if k not in ("yf_context",)}
                         _existing = pd.read_csv(_csv_path)
                         pd.concat([_existing, pd.DataFrame([_new_row])], ignore_index=True).to_csv(_csv_path, index=False)
+                        # Commit back to GitHub so the addition survives redeploys
+                        _gh_ok = False
+                        try:
+                            _gh_ok = _commit_csv_to_github(_csv_path)
+                        except Exception as _gh_err:
+                            st.warning(f"Saved for this session but GitHub sync failed: {_gh_err}")
                         st.session_state.pop("eval_result", None)
-                        # Reset filters so the new company is always visible
                         st.session_state.pop("cat_filter", None)
                         st.session_state.pop("stage_filter", None)
-                        st.success(f"**{r['ticker']}** added to the screener!")
+                        if _gh_ok:
+                            st.success(f"**{r['ticker']}** added and committed to GitHub — change is permanent.")
+                        else:
+                            st.info(
+                                f"**{r['ticker']}** added for this session. "
+                                "To make it permanent, add `GITHUB_TOKEN` to your Streamlit secrets "
+                                "(Settings → Secrets)."
+                            )
                         st.rerun()
                 with col_no:
                     if st.button("🗑 Discard"):
