@@ -701,10 +701,25 @@ with tab5:
                     st.metric("Market Cap", f"${row.get('Mkt Cap ($B)', '?')}B")
                     st.metric("1Y Performance", row.get("1Y Perf", "N/A"))
 
-    # Summary table
+    # Formula explainer
     st.divider()
+    with st.expander("ℹ️ How is Physics Score calculated?"):
+        from models.screening import OWNERSHIP_WT, SUPPLY_WT
+        st.markdown(f"""
+**Formula:** `Physics Score = Ownership Score × {OWNERSHIP_WT} + Supply Constraint Score × {SUPPLY_WT}`
+
+| Input | Scale | What it measures |
+|---|---|---|
+| **Ownership Score** | 1 – 10 | Does this company directly *own or control* the bottleneck asset? 10 = sole owner of something scarce (e.g. a uranium mine, a pre-connected power site). 5 = important player but with real competition. |
+| **Supply Constraint Score** | 1 – 10 | How hard is it for new supply to come online, even with unlimited capital? 10 = geologically or physically impossible near-term (mine development, nuclear construction). 6 = 2–5 years. 4 = 1–2 years. |
+
+Both scores live in **`data/companies.csv`** and can be edited directly in Excel or Google Sheets.
+The Physics Score column in the table is computed automatically every time the app loads.
+        """)
+
+    # Summary table
     st.subheader("Screener Table")
-    table_cols = ["Ticker", "Name", "Category", "Physics Score", "Lead Time Adv (yrs)", "Cycle Stage", "Constraint Controlled"]
+    table_cols = ["Ticker", "Name", "Category", "Physics Score", "Ownership Score", "Supply Constraint Score", "Lead Time Adv (yrs)", "Cycle Stage", "Constraint Controlled"]
     if show_live and "Price" in df_filtered.columns:
         table_cols += ["Price", "Mkt Cap ($B)", "Fwd P/E", "EV/EBITDA", "Rev Growth", "1Y Perf"]
     avail = [c for c in table_cols if c in df_filtered.columns]
@@ -715,8 +730,18 @@ with tab5:
         column_config={
             "Physics Score": st.column_config.NumberColumn(
                 "Physics Score",
-                help="How directly does this company control the physical bottleneck? 10 = owns the scarce resource outright (e.g. a mine, a pre-connected power site). 7 = strong exposure but with some competition. Higher = more direct leverage on the physics thesis.",
+                help=f"Computed as: Ownership × {OWNERSHIP_WT} + Supply Constraint × {SUPPLY_WT}. Edit the two input columns in data/companies.csv to change this score.",
                 format="%.1f",
+            ),
+            "Ownership Score": st.column_config.NumberColumn(
+                "Ownership Score",
+                help="How directly does this company OWN or CONTROL the bottleneck asset? 10 = sole owner of something scarce (a mine, a pre-connected power site). 7 = primary provider with some competition. 5 = important player but substitutable. Edit in data/companies.csv.",
+                format="%.0f",
+            ),
+            "Supply Constraint Score": st.column_config.NumberColumn(
+                "Supply Constraint Score",
+                help="How hard is it for new supply to respond to price signals, even with unlimited capital? 10 = geologically or physically impossible near-term (mine development, nuclear build). 6 = 2-5 years. 4 = 1-2 years. Edit in data/companies.csv.",
+                format="%.0f",
             ),
             "Lead Time Adv (yrs)": st.column_config.NumberColumn(
                 "Lead Time Adv (yrs)",
@@ -763,8 +788,15 @@ with tab6:
     and the market hadn't connected those dots yet."*
     """)
 
-    # ── Data ────────────────────────────────────────────────────
-    SEQ = [
+    # ── Data — loaded from data/sequencing.csv ──────────────────
+    _seq_path = os.path.join(os.path.dirname(__file__), "data", "sequencing.csv")
+    _seq_raw = pd.read_csv(_seq_path)
+    _signal_colors = {"Buy": "#4CAF50", "Hold": "#FFC107", "Reduce": "#EF5350"}
+    _seq_raw["signal_color"] = _seq_raw["signal"].map(_signal_colors).fillna("#888")
+    SEQ = _seq_raw.to_dict("records")
+
+    # ── legacy fallback key kept for reference (not used) ───────
+    if False:
         {
             "category": "Chips / Compute",
             "phase": "Saturating",
@@ -944,8 +976,7 @@ with tab6:
                 "This is the most contrarian, longest-duration, highest-asymmetry position in the sequence."
             ),
             "what_to_watch": "Data center copper intensity research; mine pipeline; China EV demand (competing thesis)",
-        },
-    ]
+        }
 
     df_seq = pd.DataFrame(SEQ)
 
