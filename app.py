@@ -822,7 +822,22 @@ The Physics Score column in the table is computed automatically every time the a
         "Always perform your own due diligence."
     )
 
-    # ── Claude Company Evaluator ─────────────────────────────────
+    # ── Shared API key for both Claude features below ────────────
+    _api_key = None
+    try:
+        _api_key = st.secrets.get("ANTHROPIC_API_KEY")
+    except Exception:
+        pass
+    if not _api_key:
+        _api_key = os.environ.get("ANTHROPIC_API_KEY")
+
+    _no_key_msg = (
+        "No Anthropic API key found.  \n"
+        "**Streamlit Cloud:** go to *Settings → Secrets* and add `ANTHROPIC_API_KEY = \"sk-ant-…\"`.  \n"
+        "**Local:** set the `ANTHROPIC_API_KEY` environment variable before running the app."
+    )
+
+    # ── Add a single company ──────────────────────────────────────
     st.divider()
     with st.expander("➕ Add a Company with Claude AI"):
         st.markdown(
@@ -832,20 +847,8 @@ The Physics Score column in the table is computed automatically every time the a
             "appears in the screener immediately."
         )
 
-        _api_key = None
-        try:
-            _api_key = st.secrets.get("ANTHROPIC_API_KEY")
-        except Exception:
-            pass
         if not _api_key:
-            _api_key = os.environ.get("ANTHROPIC_API_KEY")
-
-        if not _api_key:
-            st.warning(
-                "No Anthropic API key found.  \n"
-                "**Streamlit Cloud:** go to *Settings → Secrets* and add `ANTHROPIC_API_KEY = \"sk-ant-…\"`.  \n"
-                "**Local:** set the `ANTHROPIC_API_KEY` environment variable before running the app."
-            )
+            st.warning(_no_key_msg)
         else:
             col_et, col_en = st.columns([1, 2])
             with col_et:
@@ -941,6 +944,113 @@ The Physics Score column in the table is computed automatically every time the a
                 with col_no:
                     if st.button("🗑 Discard"):
                         st.session_state.pop("eval_result", None)
+                        st.rerun()
+
+    # ── Batch re-evaluation ───────────────────────────────────────
+    st.divider()
+    with st.expander("🔄 Batch Re-evaluate All Companies with Claude"):
+        st.markdown(
+            "Re-score every company in the database using the current Claude rubric so all scores "
+            "are consistent and comparable. Claude evaluates each company in turn, then shows you "
+            "a side-by-side comparison of old vs new scores. Nothing is saved until you confirm."
+        )
+
+        if not _api_key:
+            st.warning(_no_key_msg)
+        else:
+            from data.evaluator import evaluate_company as _eval_company
+            from models.screening import OWNERSHIP_WT as _OWT, SUPPLY_WT as _SWT
+
+            _n = len(df_all)
+            st.markdown(f"**{_n} companies** will be re-evaluated — takes roughly **{_n * 4}–{_n * 6} seconds**.")
+
+            if "batch_results" not in st.session_state:
+                if st.button(f"🚀 Start Batch Re-evaluation ({_n} companies)"):
+                    _batch_ok, _batch_err = [], []
+                    _prog = st.progress(0.0)
+                    _status = st.empty()
+                    for _i, (_, _row) in enumerate(df_all.iterrows()):
+                        _t, _nm = _row["Ticker"], _row["Name"]
+                        _status.markdown(f"Evaluating **{_t}** ({_i + 1} / {_n})…")
+                        try:
+                            _batch_ok.append(_eval_company(_t, _nm, _api_key))
+                        except Exception as _e:
+                            _batch_err.append({"ticker": _t, "name": _nm, "error": str(_e)})
+                        _prog.progress((_i + 1) / _n)
+                    _status.empty()
+                    _prog.empty()
+                    st.session_state["batch_results"] = _batch_ok
+                    st.session_state["batch_errors"] = _batch_err
+                    st.rerun()
+
+            if "batch_results" in st.session_state:
+                _results = st.session_state["batch_results"]
+                _errors  = st.session_state.get("batch_errors", [])
+
+                if _errors:
+                    st.error(f"{len(_errors)} companies failed:")
+                    for _e in _errors:
+                        st.caption(f"  • {_e['ticker']}: {_e['error']}")
+
+                # Build comparison table
+                _cmp_rows = []
+                for _r in _results:
+                    _old = df_all[df_all["Ticker"] == _r["ticker"]]
+                    _old_own  = int(_old["Ownership Score"].iloc[0])       if not _old.empty else None
+                    _old_sup  = int(_old["Supply Constraint Score"].iloc[0]) if not _old.empty else None
+                    _old_phys = float(_old["Physics Score"].iloc[0])       if not _old.empty else None
+                    _new_phys = round(_r["ownership_score"] * _OWT + _r["supply_response_score"] * _SWT, 1)
+                    _cmp_rows.append({
+                        "Ticker":       _r["ticker"],
+                        "Name":         _r["name"],
+                        "Old Own.":     _old_own,
+                        "New Own.":     _r["ownership_score"],
+                        "Δ Own.":       _r["ownership_score"] - _old_own if _old_own is not None else None,
+                        "Old Supply":   _old_sup,
+                        "New Supply":   _r["supply_response_score"],
+                        "Δ Supply":     _r["supply_response_score"] - _old_sup if _old_sup is not None else None,
+                        "Old Physics":  _old_phys,
+                        "New Physics":  _new_phys,
+                        "Δ Physics":    round(_new_phys - _old_phys, 1) if _old_phys is not None else None,
+                        "New Category": _r["category"],
+                        "Reasoning":    _r.get("reasoning", ""),
+                    })
+
+                _cmp_df = pd.DataFrame(_cmp_rows)
+                st.dataframe(
+                    _cmp_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Δ Own.":    st.column_config.NumberColumn(format="%+.0f"),
+                        "Δ Supply":  st.column_config.NumberColumn(format="%+.0f"),
+                        "Δ Physics": st.column_config.NumberColumn(format="%+.1f"),
+                        "Reasoning": st.column_config.TextColumn(width="large"),
+                    },
+                )
+
+                _col_yes, _col_no2 = st.columns(2)
+                with _col_yes:
+                    if st.button("✅ Confirm & Replace All Scores", type="primary"):
+                        _csv_path = os.path.join(os.path.dirname(__file__), "data", "companies.csv")
+                        _new_rows = [{k: v for k, v in _r.items() if k != "yf_context"} for _r in _results]
+                        pd.DataFrame(_new_rows).to_csv(_csv_path, index=False)
+                        _gh_ok = False
+                        try:
+                            _gh_ok = _commit_csv_to_github(_csv_path)
+                        except Exception as _ge:
+                            st.warning(f"Saved locally but GitHub sync failed: {_ge}")
+                        for _k in ("batch_results", "batch_errors", "cat_filter", "stage_filter"):
+                            st.session_state.pop(_k, None)
+                        if _gh_ok:
+                            st.success("All scores updated and committed to GitHub!")
+                        else:
+                            st.success("All scores updated for this session.")
+                        st.rerun()
+                with _col_no2:
+                    if st.button("🗑 Discard Batch Results"):
+                        st.session_state.pop("batch_results", None)
+                        st.session_state.pop("batch_errors", None)
                         st.rerun()
 
 
