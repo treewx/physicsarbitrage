@@ -924,7 +924,7 @@ with tab6:
             x=df_seq["market_awareness"],
             y=df_seq["upside_remaining"],
             mode="markers+text",
-            text=df_seq["category"].str.split(" (").str[0].str.split(" &").str[0],
+            text=df_seq["category"].apply(lambda x: x.split(" (")[0].split(" &")[0]),
             textposition="top center",
             marker=dict(
                 size=df_seq["physics_conviction"] * 4,
