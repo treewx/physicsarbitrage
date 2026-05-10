@@ -55,8 +55,6 @@ with st.sidebar:
         help="The macro technology shift whose physical constraints you want to analyze.",
     )
 
-    time_horizon = st.slider("Projection Horizon (years)", 3, 12, 8)
-
     st.divider()
     show_live = st.toggle(
         "Fetch Live Market Data",
@@ -333,6 +331,7 @@ with tab2:
     # Industry power projection
     st.divider()
     st.subheader("Projected AI Industry Power Demand")
+    time_horizon = st.slider("Projection horizon (years)", 3, 12, 8, key="horizon_compute")
 
     demand_df = mdl.project_industry_power_gw(years=time_horizon)
 
@@ -463,7 +462,11 @@ with tab3:
     # Forward projection
     st.divider()
     st.subheader("Forward Cost Projection")
-    proj_name = st.selectbox("Project forward:", [t.name for t in TECHNOLOGY_DATABASE])
+    col_proj_ctrl, col_proj_horizon = st.columns([2, 1])
+    with col_proj_ctrl:
+        proj_name = st.selectbox("Project forward:", [t.name for t in TECHNOLOGY_DATABASE])
+    with col_proj_horizon:
+        time_horizon = st.slider("Years to project", 3, 12, 8, key="horizon_wright")
     proj_tech = next(t for t in TECHNOLOGY_DATABASE if t.name == proj_name)
     wl_fwd = WrightLawModel(proj_tech)
 
@@ -539,6 +542,7 @@ with tab4:
 
     with col_gap:
         st.subheader("AI Power: Demand vs. New Supply")
+        time_horizon = st.slider("Projection horizon (years)", 3, 12, 8, key="horizon_energy")
         gap_df = energy_mdl.demand_supply_gap(base_ai_demand_gw=15, years=time_horizon)
 
         fig_gap = go.Figure()
