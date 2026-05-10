@@ -771,6 +771,112 @@ The Physics Score column in the table is computed automatically every time the a
         "Always perform your own due diligence."
     )
 
+    # ── Claude Company Evaluator ─────────────────────────────────
+    st.divider()
+    with st.expander("➕ Add a Company with Claude AI"):
+        st.markdown(
+            "Enter a ticker and company name. Claude will fetch basic company data from Yahoo Finance, "
+            "evaluate it against the physics arbitrage rubric, and propose scores. "
+            "Review the result before confirming — it gets saved to `data/companies.csv` and "
+            "appears in the screener immediately."
+        )
+
+        _api_key = None
+        try:
+            _api_key = st.secrets.get("ANTHROPIC_API_KEY")
+        except Exception:
+            pass
+        if not _api_key:
+            _api_key = os.environ.get("ANTHROPIC_API_KEY")
+
+        if not _api_key:
+            st.warning(
+                "No Anthropic API key found.  \n"
+                "**Streamlit Cloud:** go to *Settings → Secrets* and add `ANTHROPIC_API_KEY = \"sk-ant-…\"`.  \n"
+                "**Local:** set the `ANTHROPIC_API_KEY` environment variable before running the app."
+            )
+        else:
+            col_et, col_en = st.columns([1, 2])
+            with col_et:
+                eval_ticker = st.text_input(
+                    "Ticker", placeholder="e.g. GEV", key="eval_ticker",
+                ).strip().upper()
+            with col_en:
+                eval_name = st.text_input(
+                    "Company Name", placeholder="e.g. GE Vernova", key="eval_name",
+                ).strip()
+
+            already_in = df_all["Ticker"].str.upper().tolist()
+
+            if st.button("🤖 Evaluate with Claude", disabled=not (eval_ticker and eval_name)):
+                if eval_ticker in already_in:
+                    st.warning(f"**{eval_ticker}** is already in the screener. Remove it from `data/companies.csv` first if you want to re-evaluate.")
+                else:
+                    with st.spinner(f"Claude is researching {eval_ticker} ({eval_name})…"):
+                        try:
+                            from data.evaluator import evaluate_company
+                            st.session_state["eval_result"] = evaluate_company(eval_ticker, eval_name, _api_key)
+                            st.session_state.pop("eval_error", None)
+                        except Exception as exc:
+                            st.session_state["eval_error"] = str(exc)
+                            st.session_state.pop("eval_result", None)
+
+            if "eval_error" in st.session_state:
+                st.error(f"Evaluation failed: {st.session_state['eval_error']}")
+
+            if "eval_result" in st.session_state:
+                r = st.session_state["eval_result"]
+                ctx = r.get("yf_context", {})
+
+                from models.screening import OWNERSHIP_WT, SUPPLY_WT
+                physics_preview = round(
+                    r["ownership_score"] * OWNERSHIP_WT + r["supply_response_score"] * SUPPLY_WT, 1
+                )
+
+                st.success("Claude's evaluation — review before saving:")
+
+                col_sc, col_th = st.columns([1, 2])
+                with col_sc:
+                    st.metric("Physics Score", f"{physics_preview}/10",
+                              help=f"= Ownership × {OWNERSHIP_WT} + Supply Constraint × {SUPPLY_WT}")
+                    st.metric("Ownership Score", f"{r['ownership_score']}/10",
+                              help="Does this company own or control a physical bottleneck asset?")
+                    st.metric("Supply Constraint Score", f"{r['supply_response_score']}/10",
+                              help="How fast can new supply come online even with unlimited capital?")
+                    st.markdown(f"**Category:** {r['category']}")
+                    st.markdown(f"**Subcategory:** {r['subcategory']}")
+                    st.markdown(f"**Cycle Stage:** `{r['cycle_stage']}`")
+                    st.markdown(f"**Lead Time Advantage:** {r['lead_time_advantage_yrs']} yrs")
+
+                with col_th:
+                    if ctx:
+                        st.markdown(
+                            f"**Sector:** {ctx.get('sector', 'N/A')}  |  "
+                            f"**Industry:** {ctx.get('industry', 'N/A')}  |  "
+                            f"**Market Cap:** ${ctx.get('market_cap_b', 0)}B"
+                        )
+                    st.markdown(f"**Constraint Controlled:** {r['constraint_controlled']}")
+                    st.markdown("**Physics Thesis:**")
+                    st.markdown(f"<span class='thesis-text'>{r['physics_thesis']}</span>", unsafe_allow_html=True)
+                    st.markdown(f"**Key Metrics:** {r['key_metrics']}")
+                    st.markdown("**Claude's Reasoning:**")
+                    st.info(r["reasoning"])
+
+                col_ok, col_no = st.columns(2)
+                with col_ok:
+                    if st.button("✅ Confirm & Add to Screener", type="primary"):
+                        _csv_path = os.path.join(os.path.dirname(__file__), "data", "companies.csv")
+                        _new_row = {k: v for k, v in r.items() if k not in ("reasoning", "yf_context")}
+                        _existing = pd.read_csv(_csv_path)
+                        pd.concat([_existing, pd.DataFrame([_new_row])], ignore_index=True).to_csv(_csv_path, index=False)
+                        st.session_state.pop("eval_result", None)
+                        st.success(f"**{r['ticker']}** added to the screener!")
+                        st.rerun()
+                with col_no:
+                    if st.button("🗑 Discard"):
+                        st.session_state.pop("eval_result", None)
+                        st.rerun()
+
 
 # ═══════════════════════════════════════════════════════════════
 # TAB 6 — SEQUENCING
