@@ -28,6 +28,8 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+    /* Hide the Streamlit toolbar so it doesn't overlap the tab bar */
+    header[data-testid="stHeader"] { display: none !important; }
     .block-container { padding-top: 1.5rem; }
     .stTabs [data-baseweb="tab"] { font-size: 14px; font-weight: 600; }
     .tag {
