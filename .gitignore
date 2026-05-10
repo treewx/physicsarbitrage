@@ -1,0 +1,20 @@
+# Python packaging artifacts (installed by pip into project dir)
+Lib/
+Scripts/
+etc/
+share/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Claude Code
+.claude/
+
+# Streamlit cache
+.streamlit/

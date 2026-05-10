@@ -1,0 +1,6 @@
+@echo off
+echo Installing dependencies with Python 3.13...
+py -3.13 -m pip install -r requirements.txt -q
+echo.
+echo Starting Physics Arbitrage Scanner...
+py -3.13 -m streamlit run app.py
