@@ -49,12 +49,6 @@ with st.sidebar:
     st.caption("Aschenbrenner / Situational Awareness framework")
     st.divider()
 
-    technology_wave = st.selectbox(
-        "Technology Wave",
-        ["AI / AGI Scaling", "Electric Vehicles", "Green Hydrogen", "Nuclear Revival", "Robotics"],
-        help="The macro technology shift whose physical constraints you want to analyze.",
-    )
-
     st.divider()
     show_live = st.toggle(
         "Fetch Live Market Data",
@@ -91,6 +85,10 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 # ═══════════════════════════════════════════════════════════════
 with tab1:
     st.header("Physics Constraint Chain")
+    technology_wave = st.selectbox(
+        "Technology Wave",
+        ["AI / AGI Scaling", "Electric Vehicles", "Green Hydrogen", "Nuclear Revival", "Robotics"],
+    )
     st.markdown(
         "Trace the selected technology wave upstream through its physical dependencies. "
         "The most upstream, hardest-to-replicate resource is where the arbitrage lives."
