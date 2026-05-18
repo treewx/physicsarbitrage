@@ -15,7 +15,8 @@ import yfinance as yf
 
 VALID_CATEGORIES = {
     "Power Generation", "Pre-Connected Power", "Grid Infrastructure",
-    "Cooling and Power Management", "Nuclear Revival", "Critical Materials", "Other",
+    "Cooling and Power Management", "Nuclear Revival", "Critical Materials",
+    "Optical Interconnects", "Other",
 }
 
 
@@ -91,7 +92,7 @@ Respond ONLY with a valid JSON object and absolutely no other text:
 {{
   "ownership_score": <integer 1-10>,
   "supply_response_score": <integer 1-10>,
-  "category": "<exactly one of: Power Generation | Pre-Connected Power | Grid Infrastructure | Cooling and Power Management | Nuclear Revival | Critical Materials | Other>",
+  "category": "<exactly one of: Power Generation | Pre-Connected Power | Grid Infrastructure | Cooling and Power Management | Nuclear Revival | Critical Materials | Optical Interconnects | Other>",
   "subcategory": "<2-5 word description, e.g. Fuel Cells or Uranium Mining>",
   "cycle_stage": "<exactly one of: early | middle | late | mature>",
   "lead_time_advantage_yrs": <float, e.g. 5.0>,

@@ -1,0 +1,26 @@
+name,ticker,equity_value,options_value,options_type,total_value,pct_portfolio,thesis_category
+CoreWeave,CRWV,436735927,774426345,Call,1211162272,21.96,Pre-Connected Power
+Bloom Energy,BE,875505552,35494565,Call,910000117,16.50,Power Generation
+Intel,INTC,37,746760060,Call,746760097,13.54,Other
+Lumentum Holdings,LITE,478577256,0,,478577256,8.68,Optical Interconnects
+Core Scientific,CORZ,418694320,0,,418694320,7.59,Pre-Connected Power
+IREN Limited,IREN,328622455,0,,328622455,5.96,Pre-Connected Power
+Applied Digital,APLD,278033751,0,,278033751,5.04,Pre-Connected Power
+SanDisk,SNDK,250245996,0,,250245996,4.54,Other
+EQT Corp,EQT,133047260,37520000,Call,170567260,3.09,Power Generation
+Cipher Mining,CIFR,154523813,0,,154523813,2.80,Pre-Connected Power
+Coherent Corp,COHR,88648971,0,,88648971,1.61,Optical Interconnects
+Solaris Energy Infrastructure,SEI,85803005,0,,85803005,1.56,Power Generation
+Tower Semiconductor,TSEM,84895130,0,,84895130,1.54,Other
+Riot Platforms,RIOT,78144759,0,,78144759,1.42,Pre-Connected Power
+Kilroy Realty,KRC,49616149,0,,49616149,0.90,Other
+Hut 8,HUT,39517588,0,,39517588,0.72,Pre-Connected Power
+Whitefiber,WFBR,27770080,0,,27770080,0.50,Optical Interconnects
+Power Solutions Intl,PSIX,24701622,0,,24701622,0.45,Power Generation
+Bitdeer Technologies,BTDR,20043480,0,,20043480,0.36,Pre-Connected Power
+CleanSpark,CLSK,16600848,0,,16600848,0.30,Pre-Connected Power
+Bitfarms,BITF,16208185,0,,16208185,0.29,Pre-Connected Power
+Liberty Energy,LBRT,10470512,0,,10470512,0.19,Other
+Babcock & Wilcox,BW,8583726,0,,8583726,0.16,Nuclear Revival
+ProPetro Holding,PUMP,8656953,0,,8656953,0.16,Other
+Infosys (Short),INFY,0,-8910000,Put,-8910000,-0.16,SHORT

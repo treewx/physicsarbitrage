@@ -55,7 +55,7 @@ def _commit_csv_to_github(csv_local_path: str) -> bool:
 from data.fetchers import fetch_stock_data, fetch_price_history, market_data_to_df
 from models.compute import ComputeDemandModel
 from models.energy import EnergyBottleneckModel, BOTTLENECKS
-from models.screening import OpportunityScreener
+from models.screening import OpportunityScreener, load_companies
 from models.wright_law import WrightLawModel, TECHNOLOGY_DATABASE
 
 # ─────────────────────────────────────────────────────────────
@@ -121,13 +121,14 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🗺  Constraint Chain",
     "📈  Compute Demand",
     "📉  Wright's Law",
     "⚡  Energy Bottlenecks",
     "🔍  Opportunity Screener",
     "⏱  Sequencing",
+    "📋  13F Portfolio",
 ])
 
 # ═══════════════════════════════════════════════════════════════
@@ -1458,4 +1459,296 @@ with tab6:
         "⚠️ **Disclaimer:** Sequencing analysis reflects one interpretation of market cycle positioning "
         "as of mid-2025. It is not investment advice. Timing is inherently uncertain — "
         "cycles can compress or extend significantly. Always do your own research."
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# TAB 7 — 13F PORTFOLIO
+# ═══════════════════════════════════════════════════════════════
+with tab7:
+    st.header("Aschenbrenner 13F — Situational Awareness LP")
+    st.markdown(
+        "**Q4 2025 holdings** · Filed 11 Feb 2026 · Total AUM: **$5.52B** · **25 unique positions**  \n"
+        "Source: SEC EDGAR Form 13F-HR · File No. 028-24925"
+    )
+
+    _13f_path = os.path.join(os.path.dirname(__file__), "data", "salp_13f.csv")
+    df_13f = pd.read_csv(_13f_path)
+
+    # Dynamically check which tickers are already in our screener
+    _screener_tickers = set(load_companies()["Ticker"].str.upper())
+    df_13f["in_screener"] = df_13f["ticker"].str.upper().isin(_screener_tickers)
+
+    df_long  = df_13f[df_13f["total_value"] > 0].sort_values("total_value", ascending=False).reset_index(drop=True)
+    df_short = df_13f[df_13f["total_value"] < 0]
+
+    _total_long  = df_long["total_value"].sum()
+    _in_count    = int(df_long["in_screener"].sum())
+    _in_value    = df_long[df_long["in_screener"]]["total_value"].sum()
+    _gap_count   = int((~df_long["in_screener"]).sum())
+
+    # ── Summary metrics ──────────────────────────────────────────
+    _mc1, _mc2, _mc3, _mc4 = st.columns(4)
+    _mc1.metric("Total AUM", "$5.52B", "Q4 2025",
+                help="Total long market value of all disclosed equity and options positions as of 31 Dec 2025.")
+    _mc2.metric("Long Positions", str(len(df_long)),
+                help="Number of unique long equity and call-option positions disclosed.")
+    _mc3.metric("In Our Screener", f"{_in_count} / {len(df_long)}",
+                f"{_in_value / _total_long * 100:.0f}% by value",
+                help="How many of his positions are already scored in your Opportunity Screener.")
+    _mc4.metric("Gap Companies", str(_gap_count),
+                "not yet evaluated",
+                help="Companies in his 13F that haven't been Claude-evaluated yet. Use the section below to evaluate and add them.")
+
+    # ── Portfolio bar chart ───────────────────────────────────────
+    st.subheader("Portfolio Breakdown")
+
+    _13f_cat_colors = {
+        "Pre-Connected Power":      "#42A5F5",
+        "Power Generation":         "#FFA726",
+        "Optical Interconnects":    "#AB47BC",
+        "Nuclear Revival":          "#26C6DA",
+        "Other":                    "#78909C",
+        "SHORT":                    "#EF5350",
+    }
+
+    _fig13f = go.Figure()
+
+    # Equity / base position
+    _fig13f.add_trace(go.Bar(
+        x=df_long["equity_value"] / 1e6,
+        y=df_long["ticker"],
+        orientation="h",
+        name="Equity",
+        marker_color=[_13f_cat_colors.get(c, "#78909C") for c in df_long["thesis_category"]],
+        customdata=df_long[["name", "pct_portfolio", "thesis_category", "in_screener"]].values,
+        hovertemplate=(
+            "<b>%{customdata[0]} (%{y})</b><br>"
+            "Equity: $%{x:.0f}M<br>"
+            "Portfolio: %{customdata[1]:.1f}%<br>"
+            "Thesis: %{customdata[2]}<br>"
+            "In screener: %{customdata[3]}<extra></extra>"
+        ),
+    ))
+
+    # Options layer
+    _df_opts = df_long[df_long["options_value"].abs() > 0]
+    if not _df_opts.empty:
+        _fig13f.add_trace(go.Bar(
+            x=_df_opts["options_value"].abs() / 1e6,
+            y=_df_opts["ticker"],
+            orientation="h",
+            name="Options (calls)",
+            marker_color="rgba(255,255,255,0.22)",
+            marker_line=dict(color="rgba(255,255,255,0.5)", width=1),
+            customdata=_df_opts[["name", "options_type"]].values,
+            hovertemplate="<b>%{customdata[0]}</b> %{customdata[1]}s: $%{x:.0f}M<extra></extra>",
+        ))
+
+    _fig13f.update_layout(
+        barmode="stack",
+        template="plotly_dark",
+        height=680,
+        xaxis_title="Position Size ($M)",
+        yaxis=dict(autorange="reversed"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0),
+        margin=dict(l=70),
+    )
+    st.plotly_chart(_fig13f, use_container_width=True)
+    st.caption("Solid bar = equity · Translucent layer = call options · Colour = Aschenbrenner's thesis category")
+
+    # ── Cross-reference table ─────────────────────────────────────
+    st.subheader("Portfolio vs Our Screener")
+
+    _sc_df = load_companies()[["Ticker", "Physics Score", "Ownership Score", "Supply Constraint Score"]].copy()
+    _sc_df["Ticker"] = _sc_df["Ticker"].str.upper()
+
+    _disp = df_long.merge(_sc_df, left_on=df_long["ticker"].str.upper(), right_on="Ticker", how="left")
+    _disp_out = pd.DataFrame({
+        "Ticker":          _disp["ticker"],
+        "Name":            _disp["name"],
+        "Position ($M)":   (_disp["total_value"] / 1e6).round(1),
+        "% Portfolio":     _disp["pct_portfolio"],
+        "Options":         _disp["options_type"].fillna("").replace("", "—"),
+        "SA Thesis":       _disp["thesis_category"],
+        "In Screener":     _disp["in_screener"].map({True: "✅", False: "❌"}),
+        "Physics Score":   _disp["Physics Score"],
+    })
+
+    st.dataframe(
+        _disp_out,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Position ($M)": st.column_config.NumberColumn(format="$%.0fM"),
+            "% Portfolio":   st.column_config.NumberColumn(format="%.1f%%"),
+            "Physics Score": st.column_config.NumberColumn(format="%.1f"),
+        },
+    )
+
+    # ── Key insights ─────────────────────────────────────────────
+    st.divider()
+    st.subheader("What This Filing Tells Us")
+
+    _ki1, _ki2 = st.columns(2)
+    with _ki1:
+        st.markdown("""
+**🆕 New category: Optical Interconnects**
+Lumentum ($479M · 8.7%), Coherent ($89M), Whitefiber ($28M) = **$596M combined**.
+Moving data *between* GPU chips at scale requires photonics — copper hits physical limits above ~400 Gbps.
+This category is absent from most AI infrastructure frameworks and almost unknown to generalist investors.
+
+**CoreWeave is his #1 position (22% of fund)**
+$1.21B including massive leveraged calls. Pre-contracted NVIDIA GPU allocation + power infrastructure.
+The "plug already in the wall" thesis applied to compute, not just electricity.
+
+**Natural gas supply chain ($270M)**
+EQT, Liberty Energy, ProPetro, Solaris, Power Solutions — gas producers and oilfield services.
+Thesis: gas-fired generation is the bridge fuel powering the AI buildout; the upstream supply chain is under-owned.
+        """)
+    with _ki2:
+        st.markdown("""
+**Intel calls ($747M) — contrarian fab bet**
+Almost entirely options with almost no equity. Thesis: Intel's fabs are the only US-domiciled advanced
+semiconductor manufacturing capacity. In a world of rising geopolitical risk, that becomes
+strategic infrastructure worth far more than the current price implies.
+
+**Short Infosys (IT outsourcing)**
+Small but pointed — traditional offshore IT services get disrupted by AI.
+The other side of every AI infrastructure long.
+
+**What he is NOT holding**
+No NVDA, AMD, MSFT, AMZN, GOOGL — no Big Tech. No pure utilities (CEG, VST removed or never held).
+No copper or uranium miners. Laser-focused on the *infrastructure layer beneath the hyperscalers*.
+        """)
+
+    # ── Gap companies: evaluate & add ────────────────────────────
+    st.divider()
+    st.subheader("Evaluate Missing Companies")
+
+    df_gap = df_long[~df_long["in_screener"]].reset_index(drop=True)
+
+    if df_gap.empty:
+        st.success("All 13F positions are already in your screener — nothing to add.")
+    else:
+        st.markdown(
+            f"**{len(df_gap)} companies** in Aschenbrenner's portfolio haven't been evaluated yet. "
+            "Click below to run Claude on all of them and review the proposed scores before saving."
+        )
+        _gap_preview = pd.DataFrame({
+            "Ticker":       df_gap["ticker"],
+            "Name":         df_gap["name"],
+            "Position ($M)": (df_gap["total_value"] / 1e6).round(1),
+            "% Portfolio":  df_gap["pct_portfolio"],
+            "SA Thesis":    df_gap["thesis_category"],
+        })
+        st.dataframe(_gap_preview, hide_index=True, use_container_width=True,
+                     column_config={
+                         "Position ($M)": st.column_config.NumberColumn(format="$%.0fM"),
+                         "% Portfolio":   st.column_config.NumberColumn(format="%.1f%%"),
+                     })
+
+        # API key (reuse same retrieval pattern)
+        _api_key_13f = None
+        try:
+            _api_key_13f = st.secrets.get("ANTHROPIC_API_KEY")
+        except Exception:
+            pass
+        if not _api_key_13f:
+            _api_key_13f = os.environ.get("ANTHROPIC_API_KEY")
+
+        if not _api_key_13f:
+            st.warning("Add `ANTHROPIC_API_KEY` to Streamlit secrets to evaluate these companies.")
+        else:
+            from data.evaluator import evaluate_company as _eval_gap
+            from models.screening import OWNERSHIP_WT as _OWT_G, SUPPLY_WT as _SWT_G
+
+            _n_gap = len(df_gap)
+
+            if "gap_batch_results" not in st.session_state:
+                if st.button(f"🤖 Evaluate All {_n_gap} Missing Companies with Claude",
+                             help="Claude will research each company against the physics arbitrage rubric. Takes ~4–6 seconds per company."):
+                    _gok, _gerr = [], []
+                    _gp = st.progress(0.0)
+                    _gs = st.empty()
+                    for _gi, (_, _grow) in enumerate(df_gap.iterrows()):
+                        _gs.markdown(f"Evaluating **{_grow['ticker']}** ({_gi + 1} / {_n_gap})…")
+                        try:
+                            _gok.append(_eval_gap(_grow["ticker"], _grow["name"], _api_key_13f))
+                        except Exception as _ge:
+                            _gerr.append({"ticker": _grow["ticker"], "name": _grow["name"], "error": str(_ge)})
+                        _gp.progress((_gi + 1) / _n_gap)
+                    _gs.empty()
+                    _gp.empty()
+                    st.session_state["gap_batch_results"] = _gok
+                    st.session_state["gap_batch_errors"]  = _gerr
+                    st.rerun()
+
+            if "gap_batch_results" in st.session_state:
+                _gresults = st.session_state["gap_batch_results"]
+                _gerrors  = st.session_state.get("gap_batch_errors", [])
+
+                if _gerrors:
+                    st.error(f"{len(_gerrors)} companies failed to evaluate:")
+                    for _e in _gerrors:
+                        st.caption(f"  • {_e['ticker']}: {_e['error']}")
+
+                _gcmp_rows = []
+                for _r in _gresults:
+                    _new_phys = round(_r["ownership_score"] * _OWT_G + _r["supply_response_score"] * _SWT_G, 1)
+                    _pos = df_gap[df_gap["ticker"].str.upper() == _r["ticker"].upper()]
+                    _gcmp_rows.append({
+                        "Ticker":          _r["ticker"],
+                        "Name":            _r["name"],
+                        "SA Position ($M)": round(_pos["total_value"].iloc[0] / 1e6, 1) if not _pos.empty else "?",
+                        "% SA Portfolio":  _pos["pct_portfolio"].iloc[0] if not _pos.empty else "?",
+                        "Ownership":       _r["ownership_score"],
+                        "Supply":          _r["supply_response_score"],
+                        "Physics Score":   _new_phys,
+                        "Category":        _r["category"],
+                        "Reasoning":       _r.get("reasoning", ""),
+                    })
+
+                st.dataframe(
+                    pd.DataFrame(_gcmp_rows),
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "SA Position ($M)": st.column_config.NumberColumn(format="$%.0fM"),
+                        "% SA Portfolio":   st.column_config.NumberColumn(format="%.1f%%"),
+                        "Physics Score":    st.column_config.NumberColumn(format="%.1f"),
+                        "Reasoning":        st.column_config.TextColumn(width="large"),
+                    },
+                )
+
+                _gc1, _gc2 = st.columns(2)
+                with _gc1:
+                    if st.button("✅ Add All to Screener", type="primary"):
+                        _csv_path = os.path.join(os.path.dirname(__file__), "data", "companies.csv")
+                        _new_rows = [{k: v for k, v in _r.items() if k != "yf_context"} for _r in _gresults]
+                        _existing_csv = pd.read_csv(_csv_path)
+                        pd.concat([_existing_csv, pd.DataFrame(_new_rows)], ignore_index=True).to_csv(_csv_path, index=False)
+                        _gh_ok_g = False
+                        try:
+                            _gh_ok_g = _commit_csv_to_github(_csv_path)
+                        except Exception as _ghe:
+                            st.warning(f"Saved locally but GitHub sync failed: {_ghe}")
+                        for _k in ("gap_batch_results", "gap_batch_errors", "cat_filter", "stage_filter"):
+                            st.session_state.pop(_k, None)
+                        if _gh_ok_g:
+                            st.success(f"Added {len(_gresults)} companies to screener and committed to GitHub!")
+                        else:
+                            st.success(f"Added {len(_gresults)} companies for this session.")
+                        st.rerun()
+                with _gc2:
+                    if st.button("🗑 Discard Gap Results"):
+                        st.session_state.pop("gap_batch_results", None)
+                        st.session_state.pop("gap_batch_errors", None)
+                        st.rerun()
+
+    st.divider()
+    st.caption(
+        "⚠️ 13F filings reflect long equity and options positions held at quarter-end, "
+        "published with a 45-day lag. Short positions and positions below $10k are not disclosed. "
+        "Holdings may have changed materially since filing. This is not investment advice."
     )
