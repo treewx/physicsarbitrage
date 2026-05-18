@@ -150,13 +150,37 @@ def generate_candidates(
         existing_tickers=existing_str,
     )
 
-    response = client.messages.create(
-        model="claude-opus-4-7",
-        max_tokens=2048,
-        system=_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    messages = [{"role": "user", "content": prompt}]
 
-    raw = response.content[0].text.strip()
-    match = re.search(r"\[.*\]", raw, re.DOTALL)
-    return json.loads(match.group() if match else raw)
+    for _attempt in range(3):
+        response = client.messages.create(
+            model="claude-opus-4-7",
+            max_tokens=2048,
+            system=_SYSTEM,
+            messages=messages,
+        )
+
+        raw = response.content[0].text.strip()
+        match = re.search(r"\[.*\]", raw, re.DOTALL)
+        candidate = match.group() if match else raw
+
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            if _attempt == 2:
+                raise
+            # Ask Claude to repair the JSON it just produced
+            messages = messages + [
+                {"role": "assistant", "content": raw},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Your previous response contained invalid JSON "
+                        f"(error: {exc}). "
+                        "Please output ONLY the corrected JSON array — "
+                        "no prose, no markdown, no code fences. "
+                        "Make sure every string value uses double-quotes and "
+                        "any apostrophes inside strings are escaped as \\u0027."
+                    ),
+                },
+            ]

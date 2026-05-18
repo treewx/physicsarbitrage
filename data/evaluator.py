@@ -156,21 +156,45 @@ def evaluate_company(ticker: str, name: str, api_key: str) -> dict:
 
     client = anthropic.Anthropic(api_key=api_key)
 
-    response = client.messages.create(
-        model="claude-opus-4-7",
-        max_tokens=1024,
-        system=SYSTEM_PROMPT,
-        messages=[{
-            "role": "user",
-            "content": EVALUATION_PROMPT.format(ticker=ticker, name=name, **context),
-        }],
-    )
+    messages = [{
+        "role": "user",
+        "content": EVALUATION_PROMPT.format(ticker=ticker, name=name, **context),
+    }]
 
-    raw = response.content[0].text.strip()
+    payload = None
+    for _attempt in range(3):
+        response = client.messages.create(
+            model="claude-opus-4-7",
+            max_tokens=1024,
+            system=SYSTEM_PROMPT,
+            messages=messages,
+        )
 
-    # Tolerate any leading/trailing prose around the JSON block
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    payload = json.loads(match.group() if match else raw)
+        raw = response.content[0].text.strip()
+
+        # Tolerate any leading/trailing prose around the JSON block
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        candidate = match.group() if match else raw
+
+        try:
+            payload = json.loads(candidate)
+            break
+        except json.JSONDecodeError as exc:
+            if _attempt == 2:
+                raise
+            messages = messages + [
+                {"role": "assistant", "content": raw},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Your previous response contained invalid JSON "
+                        f"(error: {exc}). "
+                        "Output ONLY the corrected JSON object — "
+                        "no prose, no markdown fences. "
+                        "Escape any apostrophes inside string values as \\u0027."
+                    ),
+                },
+            ]
 
     # Normalise keys and attach identifiers
     raw_cat = payload.get("category", "Other")
