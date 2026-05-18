@@ -121,7 +121,7 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🗺  Constraint Chain",
     "📈  Compute Demand",
     "📉  Wright's Law",
@@ -129,6 +129,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🔍  Opportunity Screener",
     "⏱  Sequencing",
     "📋  13F Portfolio",
+    "💡  Idea Generation",
 ])
 
 # ═══════════════════════════════════════════════════════════════
@@ -672,7 +673,17 @@ with tab5:
     df_all = screener.as_dataframe()
 
     # Filters
-    col_f1, col_f2, col_f3 = st.columns(3)
+    _all_strategies = ["Asset Control", "Mandatory Supplier", "Conversion Optionality",
+                       "Input Supply", "Special Situation"]
+    # Derive which strategies actually appear in the data (may be blank for legacy rows)
+    _present_strategies = sorted(set(
+        s.strip()
+        for cell in df_all["Strategy Type"].dropna()
+        for s in str(cell).split(",")
+        if s.strip() in _all_strategies
+    )) or _all_strategies
+
+    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
     with col_f1:
         cats = st.multiselect(
             "Category", screener.categories(), default=screener.categories(), key="cat_filter",
@@ -684,11 +695,22 @@ with tab5:
             "Cycle Stage", ["early", "middle", "late", "mature"],
             default=["early", "middle", "late", "mature"], key="stage_filter",
         )
+    with col_f4:
+        strat_filter = st.multiselect(
+            "Strategy Type", _all_strategies, default=_all_strategies, key="strat_filter",
+            help="Filter by Aschenbrenner strategy archetype. Companies without a strategy tag (pre-evaluation) always show.",
+        )
+
+    def _strategy_matches(cell):
+        if not cell or (isinstance(cell, float)):
+            return True   # legacy rows with no tag always pass through
+        return any(s.strip() in strat_filter for s in str(cell).split(","))
 
     df_filtered = df_all[
         df_all["Category"].isin(cats) &
         (df_all["Physics Score"] >= min_score) &
-        df_all["Cycle Stage"].isin(stages)
+        df_all["Cycle Stage"].isin(stages) &
+        df_all["Strategy Type"].apply(_strategy_matches)
     ].sort_values("Physics Score", ascending=False).reset_index(drop=True)
 
     st.markdown(f"**{len(df_filtered)} companies match your filters**")
@@ -745,9 +767,18 @@ with tab5:
                     st.caption(str(_reasoning))
             with col_nums:
                 st.markdown(f"<span class='{cls}'>{score:.1f}/10</span>", unsafe_allow_html=True)
+                st.metric("Ownership Score", f"{int(row['Ownership Score'])}/10",
+                          help="Does this company directly own or control the bottleneck asset?")
+                _sup = row.get("Supplier Score")
+                if pd.notna(_sup) and float(_sup) > 1:
+                    st.metric("Supplier Score", f"{int(_sup)}/10",
+                              help="Is this company a mandatory supplier of a critical bottleneck component?")
                 st.metric("Lead Time Advantage", f"{row['Lead Time Adv (yrs)']:.1f} yrs",
                           help="How many years it would take a new competitor to replicate this company's physical position from scratch. A mine takes 10–20 years; a pre-connected power site takes 5–7 years; electrical equipment takes 2–3 years. The longer this is, the more durable the moat.")
                 st.markdown(f"**Cycle Stage:** `{row['Cycle Stage']}`")
+                _strat = row.get("Strategy Type")
+                if _strat and pd.notna(_strat) and str(_strat).strip():
+                    st.markdown(f"**Strategy:** `{_strat}`")
                 if show_live and "Price" in row and pd.notna(row.get("Price")):
                     st.metric("Price", row["Price"])
                     st.metric("Market Cap", f"${row.get('Mkt Cap ($B)', '?')}B")
@@ -758,20 +789,29 @@ with tab5:
     with st.expander("ℹ️ How is Physics Score calculated?"):
         from models.screening import OWNERSHIP_WT, SUPPLY_WT
         st.markdown(f"""
-**Formula:** `Physics Score = Ownership Score × {OWNERSHIP_WT} + Supply Constraint Score × {SUPPLY_WT}`
+**Formula:** `Physics Score = max(Ownership Score, Supplier Score) × {OWNERSHIP_WT} + Supply Constraint Score × {SUPPLY_WT}`
+
+Most companies are strong on exactly *one* of the first two dimensions — they either own the asset, or they supply the critical component. The formula rewards whichever axis is higher.
 
 | Input | Scale | What it measures |
 |---|---|---|
-| **Ownership Score** | 1 – 10 | Does this company directly *own or control* the bottleneck asset? 10 = sole owner of something scarce (e.g. a uranium mine, a pre-connected power site). 5 = important player but with real competition. |
-| **Supply Constraint Score** | 1 – 10 | How hard is it for new supply to come online, even with unlimited capital? 10 = geologically or physically impossible near-term (mine development, nuclear construction). 6 = 2–5 years. 4 = 1–2 years. |
+| **Ownership Score** | 1 – 10 | Does this company directly *own or control* the physical bottleneck asset? 10 = sole owner of something scarce (uranium mine, pre-connected power site). 5 = important player but with real competition. 1–3 = no genuine physical ownership. |
+| **Supplier Score** | 1 – 10 | Is this company the *mandatory supplier* of a critical bottleneck component — the key that unlocks the constraint? 10 = sole/dominant global supplier (e.g. ASML for EUV machines). 8–9 = one of 2–3 qualified suppliers; years to qualify alternatives. 1 = primarily an asset owner, not a supplier. |
+| **Supply Constraint Score** | 1 – 10 | How fast can new supply come online even with unlimited capital? 10 = geologically or physically impossible near-term (mine development = 10–20 yrs, nuclear plant = 10 yrs). 6 = 2–5 years. 4 = 1–2 years. |
 
-Both scores live in **`data/companies.csv`** and can be edited directly in Excel or Google Sheets.
-The Physics Score column in the table is computed automatically every time the app loads.
+**Strategy Types** tag which lens applies to each company:
+- **Asset Control** — owns the scarce physical asset (mine, power site, nuclear plant)
+- **Mandatory Supplier** — makes the critical component without which the bottleneck can't be unlocked
+- **Conversion Optionality** — has existing infrastructure convertible faster than new-build (crypto miners → AI hosts)
+- **Input Supply** — upstream inputs to the stack (gas, uranium, industrial gases)
+- **Special Situation** — contrarian mispricing; market hasn't connected this to AI yet
+
+All scores live in **`data/companies.csv`** and are computed automatically every time the app loads.
         """)
 
     # Summary table
     st.subheader("Screener Table")
-    table_cols = ["Ticker", "Name", "Category", "Physics Score", "Ownership Score", "Supply Constraint Score", "Lead Time Adv (yrs)", "Cycle Stage", "Constraint Controlled"]
+    table_cols = ["Ticker", "Name", "Category", "Strategy Type", "Physics Score", "Ownership Score", "Supplier Score", "Supply Constraint Score", "Lead Time Adv (yrs)", "Cycle Stage", "Constraint Controlled"]
     if show_live and "Price" in df_filtered.columns:
         table_cols += ["Price", "Mkt Cap ($B)", "Fwd P/E", "EV/EBITDA", "Rev Growth", "1Y Perf"]
     avail = [c for c in table_cols if c in df_filtered.columns]
@@ -789,6 +829,15 @@ The Physics Score column in the table is computed automatically every time the a
                 "Ownership Score",
                 help="How directly does this company OWN or CONTROL the bottleneck asset? 10 = sole owner of something scarce (a mine, a pre-connected power site). 7 = primary provider with some competition. 5 = important player but substitutable. Edit in data/companies.csv.",
                 format="%.0f",
+            ),
+            "Supplier Score": st.column_config.NumberColumn(
+                "Supplier Score",
+                help="Is this company a MANDATORY SUPPLIER of a critical bottleneck component? 10 = sole/dominant global supplier (e.g. ASML for EUV). 8-9 = one of 2-3 globally qualified suppliers. 4-5 = sells into the bottleneck but commoditised. 1 = not a supplier; scores on ownership instead.",
+                format="%.0f",
+            ),
+            "Strategy Type": st.column_config.TextColumn(
+                "Strategy Type",
+                help="Aschenbrenner strategy archetype: Asset Control = owns the scarce physical asset; Mandatory Supplier = manufactures the critical component; Conversion Optionality = repurposing existing infra (e.g. crypto miners → AI hosts); Input Supply = upstream inputs; Special Situation = contrarian mispricing.",
             ),
             "Supply Constraint Score": st.column_config.NumberColumn(
                 "Supply Constraint Score",
@@ -884,8 +933,10 @@ The Physics Score column in the table is computed automatically every time the a
                 ctx = r.get("yf_context", {})
 
                 from models.screening import OWNERSHIP_WT, SUPPLY_WT
+                _sup_score = r.get("supplier_score", 1) or 1
+                _eff_own   = max(r["ownership_score"], _sup_score)
                 physics_preview = round(
-                    r["ownership_score"] * OWNERSHIP_WT + r["supply_response_score"] * SUPPLY_WT, 1
+                    _eff_own * OWNERSHIP_WT + r["supply_response_score"] * SUPPLY_WT, 1
                 )
 
                 st.success("Claude's evaluation — review before saving:")
@@ -893,11 +944,14 @@ The Physics Score column in the table is computed automatically every time the a
                 col_sc, col_th = st.columns([1, 2])
                 with col_sc:
                     st.metric("Physics Score", f"{physics_preview}/10",
-                              help=f"= Ownership × {OWNERSHIP_WT} + Supply Constraint × {SUPPLY_WT}")
+                              help=f"= max(Ownership, Supplier) × {OWNERSHIP_WT} + Supply Constraint × {SUPPLY_WT}")
                     st.metric("Ownership Score", f"{r['ownership_score']}/10",
                               help="Does this company own or control a physical bottleneck asset?")
+                    st.metric("Supplier Score", f"{_sup_score}/10",
+                              help="Is this company a mandatory supplier of a critical bottleneck component?")
                     st.metric("Supply Constraint Score", f"{r['supply_response_score']}/10",
                               help="How fast can new supply come online even with unlimited capital?")
+                    st.markdown(f"**Strategy Type:** `{r.get('strategy_type', '—')}`")
                     st.markdown(f"**Category:** {r['category']}")
                     st.markdown(f"**Subcategory:** {r['subcategory']}")
                     st.markdown(f"**Cycle Stage:** `{r['cycle_stage']}`")
@@ -933,6 +987,7 @@ The Physics Score column in the table is computed automatically every time the a
                         st.session_state.pop("eval_result", None)
                         st.session_state.pop("cat_filter", None)
                         st.session_state.pop("stage_filter", None)
+                        st.session_state.pop("strat_filter", None)
                         if _gh_ok:
                             st.success(f"**{r['ticker']}** added and committed to GitHub — change is permanent.")
                         else:
@@ -1041,7 +1096,7 @@ The Physics Score column in the table is computed automatically every time the a
                             _gh_ok = _commit_csv_to_github(_csv_path)
                         except Exception as _ge:
                             st.warning(f"Saved locally but GitHub sync failed: {_ge}")
-                        for _k in ("batch_results", "batch_errors", "cat_filter", "stage_filter"):
+                        for _k in ("batch_results", "batch_errors", "cat_filter", "stage_filter", "strat_filter"):
                             st.session_state.pop(_k, None)
                         if _gh_ok:
                             st.success("All scores updated and committed to GitHub!")
@@ -1733,7 +1788,7 @@ No copper or uranium miners. Laser-focused on the *infrastructure layer beneath 
                             _gh_ok_g = _commit_csv_to_github(_csv_path)
                         except Exception as _ghe:
                             st.warning(f"Saved locally but GitHub sync failed: {_ghe}")
-                        for _k in ("gap_batch_results", "gap_batch_errors", "cat_filter", "stage_filter"):
+                        for _k in ("gap_batch_results", "gap_batch_errors", "cat_filter", "stage_filter", "strat_filter"):
                             st.session_state.pop(_k, None)
                         if _gh_ok_g:
                             st.success(f"Added {len(_gresults)} companies to screener and committed to GitHub!")
@@ -1751,4 +1806,291 @@ No copper or uranium miners. Laser-focused on the *infrastructure layer beneath 
         "⚠️ 13F filings reflect long equity and options positions held at quarter-end, "
         "published with a 45-day lag. Short positions and positions below $10k are not disclosed. "
         "Holdings may have changed materially since filing. This is not investment advice."
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# TAB 8 — IDEA GENERATION
+# ═══════════════════════════════════════════════════════════════
+with tab8:
+    st.header("💡 Idea Generation — Find the Next Bottleneck Plays")
+    st.markdown(
+        "Pick a **strategy archetype** and an **AI stack layer**, then let Claude brainstorm "
+        "6–8 under-the-radar publicly-traded companies that fit the intersection. "
+        "Candidates are deliberately *off the beaten path* — no NVIDIA, no Microsoft, no TSMC. "
+        "Once you have candidates you like, evaluate them with the physics arbitrage rubric "
+        "and add the best ones to your screener."
+    )
+
+    # ── API key ──────────────────────────────────────────────────
+    _idea_api_key = None
+    try:
+        _idea_api_key = st.secrets.get("ANTHROPIC_API_KEY")
+    except Exception:
+        pass
+    if not _idea_api_key:
+        _idea_api_key = os.environ.get("ANTHROPIC_API_KEY")
+
+    if not _idea_api_key:
+        st.warning(
+            "No Anthropic API key found.  \n"
+            "**Streamlit Cloud:** go to *Settings → Secrets* and add `ANTHROPIC_API_KEY = \"sk-ant-…\"`.  \n"
+            "**Local:** set the `ANTHROPIC_API_KEY` environment variable before running the app."
+        )
+    else:
+        from data.idea_generator import (
+            generate_candidates,
+            STRATEGY_DESCRIPTIONS,
+            LAYER_DESCRIPTIONS,
+        )
+        from data.evaluator import evaluate_company as _eval_idea
+        from models.screening import OWNERSHIP_WT as _OWT_I, SUPPLY_WT as _SWT_I
+
+        # ── Config selectors ─────────────────────────────────────
+        _strategy_options = list(STRATEGY_DESCRIPTIONS.keys())
+        _layer_options    = list(LAYER_DESCRIPTIONS.keys())
+
+        _idea_col1, _idea_col2 = st.columns(2)
+        with _idea_col1:
+            _sel_strategy = st.selectbox(
+                "Strategy Archetype",
+                _strategy_options,
+                index=0,
+                key="idea_strategy",
+                help="Which of Aschenbrenner's five physics arbitrage strategy patterns are you hunting for?",
+            )
+            st.info(STRATEGY_DESCRIPTIONS[_sel_strategy])
+
+        with _idea_col2:
+            _sel_layer = st.selectbox(
+                "AI Stack Layer",
+                _layer_options,
+                index=1,
+                key="idea_layer",
+                help="Which layer of the AI buildout supply chain should Claude focus on?",
+            )
+            st.info(LAYER_DESCRIPTIONS[_sel_layer])
+
+        # Existing tickers to exclude
+        _existing_tickers_idea = load_companies()["Ticker"].str.upper().tolist()
+
+        st.divider()
+        _gen_col, _ = st.columns([1, 3])
+        with _gen_col:
+            _gen_btn = st.button(
+                "🔍 Generate Candidates",
+                type="primary",
+                help=f"Ask Claude to find 6–8 under-the-radar companies matching '{_sel_strategy}' × '{_sel_layer}'",
+            )
+
+        if _gen_btn:
+            with st.spinner(f"Claude is researching {_sel_strategy} × {_sel_layer}…"):
+                try:
+                    _candidates = generate_candidates(
+                        strategy_type=_sel_strategy,
+                        stack_layer=_sel_layer,
+                        api_key=_idea_api_key,
+                        existing_tickers=_existing_tickers_idea,
+                    )
+                    st.session_state["idea_candidates"]       = _candidates
+                    st.session_state["idea_strategy_used"]    = _sel_strategy
+                    st.session_state["idea_layer_used"]       = _sel_layer
+                    st.session_state.pop("idea_eval_results", None)
+                    st.session_state.pop("idea_eval_errors",  None)
+                    st.session_state.pop("idea_selected",     None)
+                except Exception as _ie:
+                    st.error(f"Generation failed: {_ie}")
+
+        # ── Candidate results ─────────────────────────────────────
+        if "idea_candidates" in st.session_state:
+            _cands     = st.session_state["idea_candidates"]
+            _strat_lbl = st.session_state.get("idea_strategy_used", "")
+            _layer_lbl = st.session_state.get("idea_layer_used", "")
+
+            st.subheader(f"Candidates — {_strat_lbl} × {_layer_lbl}")
+            st.markdown(
+                f"Claude found **{len(_cands)} candidates**. "
+                "Check the ones you want to evaluate, then click **Evaluate Selected**."
+            )
+
+            # Candidate cards with checkboxes
+            _selected_tickers = st.session_state.get("idea_selected", [])
+
+            for _ci, _cand in enumerate(_cands):
+                _aw  = _cand.get("market_awareness_pct", "?")
+                _exch = _cand.get("exchange", "")
+                _already = _cand["ticker"].upper() in _existing_tickers_idea
+
+                _chk_label = (
+                    f"**{_cand['ticker']}** — {_cand['name']}  "
+                    f"({_exch})  {'✅ already in screener' if _already else ''}"
+                )
+                _checked = st.checkbox(
+                    _chk_label,
+                    value=(not _already),
+                    key=f"idea_chk_{_ci}_{_cand['ticker']}",
+                    disabled=_already,
+                )
+
+                with st.container():
+                    _cc1, _cc2 = st.columns([3, 1])
+                    with _cc1:
+                        st.markdown(
+                            f"<span class='thesis-text'>{_cand.get('rationale', '')}</span>",
+                            unsafe_allow_html=True,
+                        )
+                        st.caption(f"*Why undiscovered:* {_cand.get('why_undiscovered', '')}")
+                    with _cc2:
+                        st.markdown(f"**Constraint:** {_cand.get('constraint', '—')}")
+                        _aw_color = (
+                            "#4CAF50" if int(_aw) < 20
+                            else ("#FFC107" if int(_aw) < 50 else "#EF5350")
+                        ) if str(_aw).isdigit() else "#888"
+                        st.markdown(
+                            f"**Market Awareness:** "
+                            f"<span style='color:{_aw_color};font-weight:bold'>{_aw}%</span>",
+                            unsafe_allow_html=True,
+                        )
+                st.divider()
+
+            # Collect which are checked (re-derive from session state checkboxes)
+            _to_evaluate = [
+                _cand for _ci, _cand in enumerate(_cands)
+                if st.session_state.get(f"idea_chk_{_ci}_{_cand['ticker']}", False)
+                and _cand["ticker"].upper() not in _existing_tickers_idea
+            ]
+
+            if not _to_evaluate:
+                st.info("Select at least one candidate above to evaluate.")
+            else:
+                _eval_col, _ = st.columns([1, 3])
+                with _eval_col:
+                    _eval_btn = st.button(
+                        f"🤖 Evaluate {len(_to_evaluate)} Selected with Claude",
+                        type="primary",
+                        help="Claude will score each selected candidate against the full physics arbitrage rubric.",
+                    )
+
+                if _eval_btn:
+                    _eok, _eerr = [], []
+                    _ep = st.progress(0.0)
+                    _es = st.empty()
+                    for _ei, _ecand in enumerate(_to_evaluate):
+                        _es.markdown(
+                            f"Evaluating **{_ecand['ticker']}** ({_ei + 1} / {len(_to_evaluate)})…"
+                        )
+                        try:
+                            _eok.append(_eval_idea(_ecand["ticker"], _ecand["name"], _idea_api_key))
+                        except Exception as _ee:
+                            _eerr.append({
+                                "ticker": _ecand["ticker"],
+                                "name":   _ecand["name"],
+                                "error":  str(_ee),
+                            })
+                        _ep.progress((_ei + 1) / len(_to_evaluate))
+                    _es.empty()
+                    _ep.empty()
+                    st.session_state["idea_eval_results"] = _eok
+                    st.session_state["idea_eval_errors"]  = _eerr
+                    st.rerun()
+
+        # ── Evaluation results ────────────────────────────────────
+        if "idea_eval_results" in st.session_state:
+            _eresults = st.session_state["idea_eval_results"]
+            _eerrors  = st.session_state.get("idea_eval_errors", [])
+
+            if _eerrors:
+                st.error(f"{len(_eerrors)} evaluations failed:")
+                for _e in _eerrors:
+                    st.caption(f"  • {_e['ticker']}: {_e['error']}")
+
+            if _eresults:
+                st.subheader("Evaluation Results")
+                st.markdown(
+                    "Review Claude's scores below. Select which companies to add to the screener, "
+                    "then click **Add Selected to Screener**."
+                )
+
+                _eval_rows = []
+                for _er in _eresults:
+                    _sup_e  = _er.get("supplier_score", 1) or 1
+                    _eff_e  = max(_er["ownership_score"], _sup_e)
+                    _phys_e = round(_eff_e * _OWT_I + _er["supply_response_score"] * _SWT_I, 1)
+                    _eval_rows.append({
+                        "Ticker":         _er["ticker"],
+                        "Name":           _er["name"],
+                        "Physics Score":  _phys_e,
+                        "Ownership":      _er["ownership_score"],
+                        "Supplier":       _sup_e,
+                        "Supply Const.":  _er["supply_response_score"],
+                        "Strategy Type":  _er.get("strategy_type", ""),
+                        "Category":       _er["category"],
+                        "Constraint":     _er.get("constraint_controlled", ""),
+                        "Reasoning":      _er.get("reasoning", ""),
+                    })
+
+                _eval_df = pd.DataFrame(_eval_rows).sort_values("Physics Score", ascending=False)
+                st.dataframe(
+                    _eval_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Physics Score": st.column_config.NumberColumn(format="%.1f"),
+                        "Reasoning":     st.column_config.TextColumn(width="large"),
+                    },
+                )
+
+                # Per-result checkboxes for selective add
+                st.markdown("**Select companies to add to your screener:**")
+                _add_selected = []
+                for _eri, _er in enumerate(_eresults):
+                    _sup_e  = _er.get("supplier_score", 1) or 1
+                    _eff_e  = max(_er["ownership_score"], _sup_e)
+                    _phys_e = round(_eff_e * _OWT_I + _er["supply_response_score"] * _SWT_I, 1)
+                    _add_chk = st.checkbox(
+                        f"Add **{_er['ticker']}** ({_er['name']}) — Physics Score {_phys_e}",
+                        value=(_phys_e >= 6.0),
+                        key=f"idea_add_{_eri}_{_er['ticker']}",
+                    )
+                    if _add_chk:
+                        _add_selected.append(_er)
+
+                _add_col, _dis_col = st.columns(2)
+                with _add_col:
+                    if st.button(
+                        f"✅ Add {len(_add_selected)} Selected to Screener",
+                        type="primary",
+                        disabled=(len(_add_selected) == 0),
+                    ):
+                        _csv_path_i = os.path.join(os.path.dirname(__file__), "data", "companies.csv")
+                        _new_rows_i = [{k: v for k, v in _r.items() if k != "yf_context"} for _r in _add_selected]
+                        _existing_i = pd.read_csv(_csv_path_i)
+                        pd.concat([_existing_i, pd.DataFrame(_new_rows_i)], ignore_index=True).to_csv(_csv_path_i, index=False)
+                        _gh_ok_i = False
+                        try:
+                            _gh_ok_i = _commit_csv_to_github(_csv_path_i)
+                        except Exception as _ghe_i:
+                            st.warning(f"Saved locally but GitHub sync failed: {_ghe_i}")
+                        for _k in ("idea_eval_results", "idea_eval_errors", "idea_candidates",
+                                   "cat_filter", "stage_filter", "strat_filter"):
+                            st.session_state.pop(_k, None)
+                        if _gh_ok_i:
+                            st.success(
+                                f"Added {len(_add_selected)} companies to screener and committed to GitHub!"
+                            )
+                        else:
+                            st.success(f"Added {len(_add_selected)} companies for this session.")
+                        st.rerun()
+
+                with _dis_col:
+                    if st.button("🗑 Discard Results"):
+                        for _k in ("idea_eval_results", "idea_eval_errors"):
+                            st.session_state.pop(_k, None)
+                        st.rerun()
+
+    st.divider()
+    st.caption(
+        "⚠️ AI-generated candidate lists may include tickers that are delisted, inaccurate, "
+        "or misidentified. Always verify the ticker and company before evaluating. "
+        "This tool is for idea generation and does not constitute investment advice."
     )

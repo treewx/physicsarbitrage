@@ -75,6 +75,22 @@ IRRELEVANT to this score. Only direct physical ownership counts. NVIDIA (fabless
 scores LOWER than an obscure uranium miner that owns proven in-ground reserves. If torn between
 two bands, choose the LOWER one. The rubric rewards physical control, not financial size.
 
+supplier_score (1-10) — Is this company a MANDATORY SUPPLIER of a critical bottleneck component?
+  10  = Sole or dominant global supplier of a physical component without which the bottleneck
+        cannot function at scale. No viable substitute exists.
+        (Examples: Lumentum — dominant supplier of laser chips for AI optical transceivers;
+         ASML — only maker of EUV machines)
+  8-9 = One of 2-3 globally qualified suppliers; switching requires years of qualification;
+        no new entrant can be production-ready in under 5 years
+  6-7 = Important supplier but 3-5 qualified competitors exist; can be substituted in 2-4 years
+  4-5 = Sells into the bottleneck but the product is relatively commoditised or substitutable
+  1-3 = Peripheral vendor, easily switched, no unique technical capability tied to the bottleneck
+  1   = Company is primarily an asset owner, not a component manufacturer — give it 1 here
+        and score it on ownership_score instead
+
+  NOTE: Score each dimension independently. Most companies score high on ONE of
+  ownership_score or supplier_score, and low on the other. That is expected.
+
 supply_response_score (1-10) — How fast can new supply come online, even with unlimited capital?
   10  = CANNOT be meaningfully accelerated (copper mine = 10-20 years; nuclear plant = 10 years)
   8-9 = 5-10 years even with full capital commitment
@@ -91,7 +107,9 @@ Respond ONLY with a valid JSON object and absolutely no other text:
 
 {{
   "ownership_score": <integer 1-10>,
+  "supplier_score": <integer 1-10>,
   "supply_response_score": <integer 1-10>,
+  "strategy_type": "<one or more comma-separated from: Asset Control | Mandatory Supplier | Conversion Optionality | Input Supply | Special Situation>",
   "category": "<exactly one of: Power Generation | Pre-Connected Power | Grid Infrastructure | Cooling and Power Management | Nuclear Revival | Critical Materials | Optical Interconnects | Other>",
   "subcategory": "<2-5 word description, e.g. Fuel Cells or Uranium Mining>",
   "cycle_stage": "<exactly one of: early | middle | late | mature>",
@@ -99,7 +117,7 @@ Respond ONLY with a valid JSON object and absolutely no other text:
   "constraint_controlled": "<one crisp sentence: what physical asset does this company control?>",
   "physics_thesis": "<2-3 sentences explaining why this company fits physics arbitrage>",
   "key_metrics": "<exactly 3 metrics to track, semicolon-separated>",
-  "reasoning": "<2-3 sentences explaining how you arrived at the two scores>"
+  "reasoning": "<2-3 sentences explaining how you arrived at the ownership, supplier, and supply_response scores>"
 }}
 
 If this company has no meaningful physics arbitrage angle give it ownership_score 1-3 and be explicit about why in reasoning.
@@ -158,14 +176,24 @@ def evaluate_company(ticker: str, name: str, api_key: str) -> dict:
     raw_cat = payload.get("category", "Other")
     category = raw_cat if raw_cat in VALID_CATEGORIES else "Other"
 
+    valid_strategies = {"Asset Control", "Mandatory Supplier", "Conversion Optionality",
+                        "Input Supply", "Special Situation"}
+    raw_strat = payload.get("strategy_type", "Asset Control")
+    # Keep only recognised tokens
+    strategy_type = ", ".join(
+        s.strip() for s in raw_strat.split(",") if s.strip() in valid_strategies
+    ) or "Asset Control"
+
     return {
         "ticker":                  ticker.upper(),
         "name":                    name,
         "category":                category,
         "subcategory":             payload.get("subcategory", ""),
+        "strategy_type":           strategy_type,
         "cycle_stage":             payload.get("cycle_stage", "early"),
         "lead_time_advantage_yrs": float(payload.get("lead_time_advantage_yrs", 3.0)),
         "ownership_score":         int(payload.get("ownership_score", 5)),
+        "supplier_score":          int(payload.get("supplier_score", 1)),
         "supply_response_score":   int(payload.get("supply_response_score", 5)),
         "constraint_controlled":   payload.get("constraint_controlled", ""),
         "physics_thesis":          payload.get("physics_thesis", ""),
